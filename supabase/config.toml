@@ -1,0 +1,2 @@
+[functions.yahoo-finance]
+verify_jwt = false
