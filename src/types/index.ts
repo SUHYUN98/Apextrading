@@ -126,7 +126,18 @@ export interface AssetAnalysis {
 
 export type PipelineStage = 1 | 2 | 3;
 
+export type BacktestDirection = 'long' | 'short';
+
+export interface BacktestTrade {
+  entryTime: number;
+  entryPrice: number;
+  exitTime: number;
+  exitPrice: number;
+  returnPercent: number;
+}
+
 export interface BacktestResult {
+  direction: BacktestDirection;
   holdBars: number;
   signals: number;
   wins: number;
@@ -134,4 +145,5 @@ export interface BacktestResult {
   bestReturn: number;
   worstReturn: number;
   skippedConditions: string[];
+  trades: BacktestTrade[];
 }

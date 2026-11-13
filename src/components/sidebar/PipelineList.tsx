@@ -47,6 +47,7 @@ export function PipelineTabs({ view, onChange }: { view: ListView; onChange: (vi
 export function PipelineList({ stage }: { stage: PipelineStage }) {
   const analyses = useStore((s) => s.analyses);
   const backtests = useStore((s) => s.backtests);
+  const backtestDirection = useStore((s) => s.backtestDirection);
   const conditions = useStore((s) => s.conditions);
   const threshold = useStore((s) => s.volumeSpikeThreshold);
   const setThreshold = useStore((s) => s.setVolumeSpikeThreshold);
@@ -154,7 +155,7 @@ export function PipelineList({ stage }: { stage: PipelineStage }) {
     <>
       <StageHeader
         title={`Backtest results (${backtestRows.length})`}
-        description={`Replays the current rule over each asset's history. Enter on signal, exit after ${BACKTEST_HOLD_BARS} bars.`}
+        description={`Replays the current rule as a ${backtestDirection === 'long' ? 'long' : 'short'} trade over each asset's history. Enter on signal, exit after ${BACKTEST_HOLD_BARS} bars.`}
         updatedLabel={updatedLabel}
       >
         <div className="mt-3 grid grid-cols-3 gap-2">

@@ -1,4 +1,4 @@
-import type { BacktestResult, CandleData, ScreenerCondition } from '@/types';
+import type { BacktestDirection, BacktestResult, BacktestTrade, CandleData, ScreenerCondition } from '@/types';
 import { calculateEMA, calculateRSI } from '@/engine/indicators';
 import { compareValues } from '@/engine/screener/screener';
 
@@ -63,6 +63,7 @@ export function runBacktest(
   candles: CandleData[],
   conditions: ScreenerCondition[],
   volumeThreshold: number,
+  direction: BacktestDirection,
   holdBars = BACKTEST_HOLD_BARS
 ): BacktestResult {
   const historical = conditions.filter((c) => HISTORICAL_FIELDS.has(c.field));
@@ -71,7 +72,7 @@ export function runBacktest(
     .map((c) => c.label);
 
   const s = buildSeries(candles);
-  const returns: number[] = [];
+  const trades: BacktestTrade[] = [];
 
   let i = WARMUP_BARS;
   while (i + holdBars < candles.length) {
@@ -80,21 +81,34 @@ export function runBacktest(
       historical.every((c) => conditionHoldsAt(c, i, s));
 
     if (triggered) {
-      returns.push((s.closes[i + holdBars] / s.closes[i] - 1) * 100);
+      const exitIndex = i + holdBars;
+      const entryPrice = s.closes[i];
+      const exitPrice = s.closes[exitIndex];
+      const move = (exitPrice / entryPrice - 1) * 100;
+      trades.push({
+        entryTime: candles[i].time,
+        entryPrice,
+        exitTime: candles[exitIndex].time,
+        exitPrice,
+        returnPercent: direction === 'long' ? move : -move,
+      });
       i += holdBars;
     } else {
       i++;
     }
   }
 
+  const returns = trades.map((t) => t.returnPercent);
   return {
+    direction,
     holdBars,
-    signals: returns.length,
+    signals: trades.length,
     wins: returns.filter((r) => r > 0).length,
     returnSum: returns.reduce((sum, r) => sum + r, 0),
     bestReturn: returns.length ? Math.max(...returns) : 0,
     worstReturn: returns.length ? Math.min(...returns) : 0,
     skippedConditions,
+    trades,
   };
 }
 

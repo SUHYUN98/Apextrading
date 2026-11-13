@@ -9,6 +9,7 @@ import type {
   IndicatorSettings,
   InterpretationEntry,
   AssetAnalysis,
+  BacktestDirection,
   BacktestResult,
   DataStatus,
 } from '@/types';
@@ -82,6 +83,8 @@ interface AppState {
   volumeSpikeThreshold: number;
   setVolumeSpikeThreshold: (value: number) => void;
   backtests: Map<string, BacktestResult>;
+  backtestDirection: BacktestDirection;
+  setBacktestDirection: (direction: BacktestDirection) => void;
   pipelineUpdatedAt: number | null;
 
   // Top-level view
@@ -209,7 +212,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   analyses: [],
   recomputeAnalyses: () => {
-    const { assetStates, assetOrder, trendlineRule, conditions, volumeSpikeThreshold } = get();
+    const { assetStates, assetOrder, trendlineRule, conditions, volumeSpikeThreshold, backtestDirection } = get();
     const analyses: AssetAnalysis[] = [];
     const backtests = new Map<string, BacktestResult>();
     for (const id of assetOrder) {
@@ -218,7 +221,7 @@ export const useStore = create<AppState>((set, get) => ({
       try {
         const analysis = analyzeAsset(state.asset, state.candles, trendlineRule, conditions);
         analyses.push(analysis);
-        backtests.set(id, runBacktest(state.candles, conditions, volumeSpikeThreshold));
+        backtests.set(id, runBacktest(state.candles, conditions, volumeSpikeThreshold, backtestDirection));
       } catch {
         // skip analysis errors
       }
@@ -238,6 +241,11 @@ export const useStore = create<AppState>((set, get) => ({
     get().recomputeAnalyses();
   },
   backtests: new Map(),
+  backtestDirection: 'long',
+  setBacktestDirection: (direction) => {
+    set({ backtestDirection: direction });
+    get().recomputeAnalyses();
+  },
   pipelineUpdatedAt: null,
 
   interpretationLog: [],
