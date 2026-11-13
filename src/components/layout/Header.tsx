@@ -3,7 +3,7 @@ import { useStore, type AppView } from '@/store/useStore';
 import { useI18n } from '@/i18n/useI18n';
 import type { FuturesSocketStatus } from '@/services/marketData/binanceFuturesSocket';
 
-const VIEWS: AppView[] = ['chart', 'surge'];
+const VIEWS: AppView[] = ['chart', 'surge', 'scanner'];
 
 const SOCKET_BADGE: Record<Exclude<FuturesSocketStatus, 'idle'>, { label: string; text: string; dot: string }> = {
   open: { label: 'WS Live', text: 'text-bullish', dot: 'bg-bullish animate-pulse-subtle' },

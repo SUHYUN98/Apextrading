@@ -28,7 +28,7 @@ import { checkFuturesSymbol } from '@/services/marketData/binanceFuturesRest';
 import { futuresSocket, type FuturesKlineUpdate, type FuturesSocketState } from '@/services/marketData/binanceFuturesSocket';
 import type { Lang } from '@/i18n/types';
 
-export type AppView = 'chart' | 'surge';
+export type AppView = 'chart' | 'surge' | 'scanner';
 
 interface AssetState {
   def: AssetDefinition;

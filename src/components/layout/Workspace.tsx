@@ -6,6 +6,7 @@ import { ScreenerSidebar } from '@/components/sidebar/ScreenerSidebar';
 import { ChartCanvas } from '@/components/chart/ChartCanvas';
 import { ConditionPanel } from '@/components/panel/ConditionPanel';
 import { VolumeSurgeScreener } from '@/components/surge/VolumeSurgeScreener';
+import { ScannerScreen } from '@/components/scanner/ScannerScreen';
 
 type MobilePane = 'markets' | 'chart' | 'analysis';
 
@@ -31,7 +32,9 @@ export function Workspace() {
   return (
     <div className="h-dvh flex flex-col bg-canvas-light dark:bg-canvas-dark overflow-hidden">
       <Header />
-      {appView === 'surge' ? (
+      {appView === 'scanner' ? (
+        <ScannerScreen />
+      ) : appView === 'surge' ? (
         <VolumeSurgeScreener />
       ) : (
         <>

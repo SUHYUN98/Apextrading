@@ -3,7 +3,7 @@ import type { Lang } from '@/i18n/types';
 // EN must mirror KR's shape; the type annotation on `en` enforces that every key exists in both.
 const ko = {
   locale: 'ko-KR',
-  nav: { chart: '차트 분석', surge: '거래량 급등' },
+  nav: { chart: '차트 분석', surge: '거래량 급등', scanner: '신호 스캐너' },
   languageToggle: '언어 전환',
   format: {
     krwPrice: (text: string) => `${text}원`,
@@ -128,7 +128,7 @@ const ko = {
 
 const en: typeof ko = {
   locale: 'en-US',
-  nav: { chart: 'Chart Analysis', surge: 'Volume Surge' },
+  nav: { chart: 'Chart Analysis', surge: 'Volume Surge', scanner: 'Signal Scanner' },
   languageToggle: 'Switch language',
   format: {
     krwPrice: (text: string) => `₩${text}`,
