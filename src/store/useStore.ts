@@ -27,6 +27,7 @@ import { normalizeBinanceSymbol } from '@/services/api/binance';
 import { checkFuturesSymbol } from '@/services/marketData/binanceFuturesRest';
 import { futuresSocket, type FuturesKlineUpdate, type FuturesSocketState } from '@/services/marketData/binanceFuturesSocket';
 import type { Lang } from '@/i18n/types';
+import { applyLiveUpdate, mergeBufferedUpdates } from './candleMerge';
 
 export type AppView = 'chart' | 'surge' | 'scanner';
 
@@ -36,6 +37,7 @@ interface AssetState {
   candles: CandleData[];
   status: DataStatus;
   cached: boolean;
+  timeframe: Timeframe;
 }
 
 interface AppState {
@@ -113,7 +115,7 @@ interface AppState {
   loadAsset: (def: AssetDefinition, options?: { keepSocket?: boolean }) => Promise<void>;
   refreshAllAssets: () => Promise<void>;
   addCustomAsset: (query: string) => Promise<string | null>;
-  updateLiveCandle: (assetId: string, update: FuturesKlineUpdate) => void;
+  updateLiveCandle: (assetId: string, update: FuturesKlineUpdate, timeframe: Timeframe) => void;
 
   // Live market socket
   socketState: FuturesSocketState;
@@ -125,6 +127,11 @@ interface AppState {
   // WebSocket setup
   setupWebSocketForAsset: (assetId: string) => void;
 }
+
+// Coordinates in-flight REST loads with WebSocket updates; only the newest load per asset may apply its result.
+const latestRequestToken = new Map<string, number>();
+const liveBuffers = new Map<string, FuturesKlineUpdate[]>();
+let requestCounter = 0;
 
 let conditionIdCounter = 0;
 export function generateConditionId(): string {
@@ -147,7 +154,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   timeframe: '4H',
   setTimeframe: (tf) => {
+    if (get().timeframe === tf) return;
+    futuresSocket.unsubscribe();
     set({ timeframe: tf });
+    get().recomputeAnalyses();
     get().refreshAllAssets();
   },
 
@@ -212,12 +222,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   analyses: [],
   recomputeAnalyses: () => {
-    const { assetStates, assetOrder, trendlineRule, conditions, volumeSpikeThreshold, backtestDirection } = get();
+    const { assetStates, assetOrder, trendlineRule, conditions, volumeSpikeThreshold, backtestDirection, timeframe } = get();
     const analyses: AssetAnalysis[] = [];
     const backtests = new Map<string, BacktestResult>();
     for (const id of assetOrder) {
       const state = assetStates.get(id);
-      if (!state || !state.asset || state.candles.length === 0) continue;
+      if (!state || !state.asset || state.candles.length === 0 || state.timeframe !== timeframe) continue;
       try {
         const analysis = analyzeAsset(state.asset, state.candles, trendlineRule, conditions);
         analyses.push(analysis);
@@ -274,6 +284,7 @@ export const useStore = create<AppState>((set, get) => ({
         candles: [],
         status: 'loading',
         cached: false,
+        timeframe: get().timeframe,
       });
     }
     set({ assetStates: states });
@@ -282,31 +293,45 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadAsset: async (def, options) => {
     const tf = get().timeframe;
+    const token = ++requestCounter;
+    latestRequestToken.set(def.id, token);
+    liveBuffers.set(def.id, []);
+    const isCurrent = () => latestRequestToken.get(def.id) === token && get().timeframe === tf;
 
-    // Set loading state
     set((s) => {
       const states = new Map(s.assetStates);
+      const prev = states.get(def.id);
       states.set(def.id, {
         def,
-        asset: states.get(def.id)?.asset ?? null,
-        candles: states.get(def.id)?.candles ?? [],
+        asset: prev?.asset ?? null,
+        candles: prev?.timeframe === tf ? prev.candles : [],
         status: 'loading',
         cached: false,
+        timeframe: tf,
       });
       return { assetStates: states };
     });
 
     try {
       const result = await fetchAssetData(def, tf);
+      if (!isCurrent()) return;
+
+      const buffered = liveBuffers.get(def.id) ?? [];
+      liveBuffers.delete(def.id);
+      const candles = mergeBufferedUpdates(result.candles, buffered);
+      const asset = result.asset && buffered.length > 0 && candles.length > 0
+        ? { ...result.asset, currentPrice: candles[candles.length - 1].close }
+        : result.asset;
 
       set((s) => {
         const states = new Map(s.assetStates);
         states.set(def.id, {
           def,
-          asset: result.asset,
-          candles: result.candles,
+          asset,
+          candles,
           status: result.status,
           cached: result.cached,
+          timeframe: tf,
         });
         return { assetStates: states };
       });
@@ -317,14 +342,18 @@ export const useStore = create<AppState>((set, get) => ({
         get().setupWebSocketForAsset(def.id);
       }
     } catch {
+      if (!isCurrent()) return;
+      liveBuffers.delete(def.id);
       set((s) => {
         const states = new Map(s.assetStates);
+        const prev = states.get(def.id);
         states.set(def.id, {
           def,
-          asset: states.get(def.id)?.asset ?? null,
-          candles: states.get(def.id)?.candles ?? [],
+          asset: prev?.asset ?? null,
+          candles: prev?.timeframe === tf ? prev.candles : [],
           status: 'error',
           cached: false,
+          timeframe: tf,
         });
         return { assetStates: states };
       });
@@ -367,6 +396,7 @@ export const useStore = create<AppState>((set, get) => ({
         candles: [],
         status: 'loading',
         cached: false,
+        timeframe: s.timeframe,
       });
       return {
         assetStates: states,
@@ -391,51 +421,25 @@ export const useStore = create<AppState>((set, get) => ({
     return def.id;
   },
 
-  updateLiveCandle: (assetId, msg) => {
+  updateLiveCandle: (assetId, msg, timeframe) => {
+    if (timeframe !== get().timeframe) return;
+
+    const buffer = liveBuffers.get(assetId);
+    if (buffer) {
+      buffer.push(msg);
+      return;
+    }
+
     set((s) => {
       const state = s.assetStates.get(assetId);
-      if (!state || state.candles.length === 0) return s;
+      if (!state || state.timeframe !== timeframe || state.candles.length === 0) return s;
+
+      const candles = applyLiveUpdate(state.candles, msg);
+      if (candles === state.candles) return s;
 
       const states = new Map(s.assetStates);
-      const candles = [...state.candles];
-      const lastCandle = candles[candles.length - 1];
-
-      if (lastCandle && lastCandle.time === msg.time) {
-        // Update existing candle
-        candles[candles.length - 1] = {
-          time: msg.time,
-          open: msg.open,
-          high: msg.high,
-          low: msg.low,
-          close: msg.close,
-          volume: msg.volume,
-        };
-      } else if (lastCandle && msg.time > lastCandle.time) {
-        // New candle
-        candles.push({
-          time: msg.time,
-          open: msg.open,
-          high: msg.high,
-          low: msg.low,
-          close: msg.close,
-          volume: msg.volume,
-        });
-        // Keep max 300 candles
-        if (candles.length > 300) candles.shift();
-      }
-
-      // Update asset price
-      const asset = state.asset
-        ? { ...state.asset, currentPrice: msg.close }
-        : null;
-
-      states.set(assetId, {
-        ...state,
-        candles,
-        asset,
-        status: 'live',
-      });
-
+      const asset = state.asset ? { ...state.asset, currentPrice: msg.close } : null;
+      states.set(assetId, { ...state, candles, asset, status: 'live' });
       return { assetStates: states };
     });
 
@@ -449,10 +453,11 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
 
+    const tf = get().timeframe;
     futuresSocket.subscribe(
       state.def.symbol,
-      get().timeframe,
-      (update) => get().updateLiveCandle(assetId, update),
+      tf,
+      (update) => get().updateLiveCandle(assetId, update, tf),
       () => {
         const def = get().assetStates.get(assetId)?.def;
         if (def) void get().loadAsset(def, { keepSocket: true });

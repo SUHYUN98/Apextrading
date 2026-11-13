@@ -97,6 +97,30 @@ export async function fetchYahooChartSnapshot(
   };
 }
 
+const FOUR_HOUR_SECONDS = 4 * 60 * 60;
+
+// Buckets are aligned to UTC epoch boundaries; TradingView session-based bars can start at different times.
+export function aggregateCandlesToUtcBuckets(candles: CandleData[], bucketSeconds: number): CandleData[] {
+  const uniqueByTime = new Map<number, CandleData>();
+  for (const candle of candles) uniqueByTime.set(candle.time, candle);
+  const sorted = [...uniqueByTime.values()].sort((a, b) => a.time - b.time);
+
+  const buckets = new Map<number, CandleData>();
+  for (const candle of sorted) {
+    const start = Math.floor(candle.time / bucketSeconds) * bucketSeconds;
+    const current = buckets.get(start);
+    if (!current) {
+      buckets.set(start, { ...candle, time: start });
+      continue;
+    }
+    current.high = Math.max(current.high, candle.high);
+    current.low = Math.min(current.low, candle.low);
+    current.close = candle.close;
+    current.volume += candle.volume;
+  }
+  return [...buckets.values()];
+}
+
 export async function fetchYahooCandles(
   ticker: string,
   timeframe: Timeframe
@@ -168,10 +192,10 @@ export async function fetchYahooCandles(
       });
     }
 
-    // Update cache
-    cache.set(cacheKey, { data: candles, timestamp: now });
+    const finalCandles = timeframe === '4H' ? aggregateCandlesToUtcBuckets(candles, FOUR_HOUR_SECONDS) : candles;
+    cache.set(cacheKey, { data: finalCandles, timestamp: now });
 
-    return { candles, cached: false };
+    return { candles: finalCandles, cached: false };
   } catch (err) {
     // Fall back to stale cache
     if (cached) {

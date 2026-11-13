@@ -14,6 +14,10 @@ export function useScanner(settings: ScannerSettings) {
   const [state, setState] = useState<ScannerState>({ status: 'scanning', outcome: null, error: null });
   const latestRun = useRef(0);
 
+  const invalidatePendingRuns = useCallback(() => {
+    latestRun.current++;
+  }, []);
+
   const scan = useCallback(async () => {
     const runId = ++latestRun.current;
     setState((prev) => ({ ...prev, status: 'scanning', error: null }));
@@ -30,8 +34,11 @@ export function useScanner(settings: ScannerSettings) {
   useEffect(() => {
     void scan();
     const timer = setInterval(() => void scan(), AUTO_REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [scan]);
+    return () => {
+      clearInterval(timer);
+      invalidatePendingRuns();
+    };
+  }, [scan, invalidatePendingRuns]);
 
   return { state, scan };
 }
